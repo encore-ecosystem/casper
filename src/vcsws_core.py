@@ -1,5 +1,7 @@
 import os
 import re
+import tqdm
+import json
 import pprint
 import pickle
 import tomllib
@@ -8,28 +10,27 @@ import asyncio
 import datetime
 import websockets
 
-
 from pathlib import Path
 from src.logger import Logger
 from src.utils import *
 
 
 class VCSWS:
-    project_root  : Path
-    vcsws_path    : Path
-    manifest_path : Path
-    project_name  : str
-    ignore_list   : list
-    branch        : str  = 'main'
+    project_root: Path
+    vcsws_path: Path
+    manifest_path: Path
+    project_name: str
+    ignore_list: list
+    branch: str = 'main'
 
     #
     # MAGIC
     #
     def __init__(self, logger: Logger, save_progress: bool = False):
-        self.logger      = logger
-        self.save        = save_progress
+        self.logger = logger
+        self.save = save_progress
         self.initialized = False
-        self.manifest    = {}
+        self.manifest = {}
 
     def __str__(self) -> str:
         return f'[{self.get_project_name()}]'
@@ -38,21 +39,21 @@ class VCSWS:
     # INTERFACE
     #
     def init(self, project_path):
-        project_root = Path(project_path).absolute()
+        project_root = Path(project_path.strip(" '\"")).absolute()
         if not project_root.exists() or not project_root.is_dir():
             print('[Error] Project path invalid')
             return
 
-        self.project_root  = project_root
-        self.vcsws_path    = self.project_root / '.vcsws'
-        self.manifest_path = self.vcsws_path   / 'manifest.toml'
-        self.project_name  = self.project_root.name
+        self.project_root = project_root
+        self.vcsws_path = self.project_root / '.vcsws'
+        self.manifest_path = self.vcsws_path / 'manifest.toml'
+        self.project_name = self.project_root.name
 
         self.load_manifest()
         self.load_ignore()
 
     def make_new_branch(self, branch_name: str):
-        if not (self.vcsws_path / 'branches' /  branch_name).exists():
+        if not (self.vcsws_path / 'branches' / branch_name).exists():
             (self.vcsws_path / 'branches' / branch_name).mkdir()
 
     def relocate(self, branch_name: str):
@@ -94,7 +95,20 @@ class VCSWS:
 
     async def push(self, address: str):
         async with websockets.connect(address) as ws:
-            await ws.send("push main")
+            await ws.send("push")
+            to_send = self.logger(self.hash_it, Path())
+            data = {}
+            for (hash_, path_) in to_send:
+                data[hash_] =  path_
+
+            await ws.send(json.dumps(data))
+
+            to_download = json.loads(await ws.recv())
+            for file_hash in tqdm.tqdm(to_download):
+                with open(self.project_root / data[file_hash], 'rb') as binfile:
+                    await ws.send(binfile.read())
+
+            print("Completed")
 
     async def pull(self, address: str):
         async with websockets.connect(address) as ws:
@@ -107,16 +121,50 @@ class VCSWS:
             print(f"[{datetime.datetime.now()}] New connection from {websocket.remote_address}")
             command = await websocket.recv()
             nonlocal deploy_is_running
-            if   re.fullmatch(r"pull \w+", command):
+            if re.fullmatch(r"pull", command):
                 print('pulling', command)
+
+                #
                 deploy_is_running = False
-            elif re.fullmatch(r"push \w+", command):
-                print('pushing', command)
+
+            elif re.fullmatch(r"push", command):
+                # get datas
+                server_data = {hash_: path_  for hash_, path_ in self.logger(self.hash_it, Path())}
+                client_data = json.loads(await websocket.recv())
+                files_to_pull = {}
+
+                # compare hashes
+                for hash_ in client_data:
+                    if hash_ not in server_data:
+                        if client_data[hash_] in server_data.values():
+                            print(f'[U] Updated file in {client_data[hash_]}')
+
+                            files_to_pull[hash_] = 'update'
+                        else:
+                            print(f'[+] New file in {client_data[hash_]}')
+                            files_to_pull[hash_] = 'download'
+
+                    else:
+                        del server_data[hash_]
+
+                for hash_ in server_data:
+                    print(f'[D] Deleted file in {server_data[hash_]}')
+
+                # download new files
+                await websocket.send(json.dumps(files_to_pull))
+
+                for hash_ in tqdm.tqdm(files_to_pull):
+                    binfile = await websocket.recv()
+                    safe_mkdir((self.project_root / client_data[hash_]).parent)
+                    with open(self.project_root / client_data[hash_], 'wb') as f:
+                        f.write(binfile)
+
+                #
                 deploy_is_running = False
             else:
                 print('unexpected command', command)
 
-        async with websockets.serve(handler, '127.0.0.1', int(self.prompt("enter port: "))) as server:
+        async with websockets.serve(handler, '127.0.0.1', int(self.prompt("enter port: "))):
             print(f"[{datetime.datetime.now()}] Starting server...")
             while deploy_is_running:
                 await asyncio.sleep(5)
@@ -156,12 +204,13 @@ class VCSWS:
     def hash_it(self, rel_path: Path):
         path = self.project_root / rel_path
         if path in self.ignore_list:
-            return []
+            return tuple()
 
         if path.is_file():
             with open(path, 'rb') as file:
-                file_hash = hashlib.sha256(file.read()).hexdigest()
-                return [(file_hash, rel_path.as_posix())]
+                file_hash = hashlib.sha256(file.read())
+                file_hash.update(rel_path.name.encode())
+                return ((file_hash.hexdigest(), rel_path.as_posix()), )
 
         elif path.is_dir():
             res = []
@@ -197,25 +246,11 @@ class VCSWS:
                     self.logger(self.init, self.prompt("Enter project path: "))
                     self.initialized = True
 
-                case 'make_new_branch':
-                    initialize_executor(
-                        self.logger,
-                        self.initialized,
-                        self.make_new_branch, self.prompt("Enter branch name: ")
-                    )
-
                 case 'status':
                     initialize_executor(
                         self.logger,
                         self.initialized,
                         self.status,
-                    )
-
-                case 'commit':
-                    initialize_executor(
-                        self.logger,
-                        self.initialized,
-                        self.commit,  self.prompt("Enter commit name: "), self.prompt("Enter commit description: ")
                     )
 
                 case 'pull':
@@ -232,27 +267,11 @@ class VCSWS:
                         self.push(self.prompt("Enter address: "))
                     )
 
-                case 'branches':
-                    branches = initialize_executor(
-                        self.logger,
-                        self.initialized,
-                        self.get_branches
-                    )
-                    for branch in branches:
-                        print(f" - {branch}")
-
-                case 'relocate':
-                    initialize_executor(
-                        self.logger,
-                        self.initialized,
-                        self.relocate, self.prompt("Enter target branch name:")
-                    )
-
                 case 'deploy':
                     initialize_executor(
                         asyncio.run,
                         self.initialized,
-                        self.deploy
+                        self.deploy()
                     )
                 case 'ignore':
                     initialize_executor(

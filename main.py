@@ -1,3 +1,5 @@
+import os
+
 from src.vcsws_core import *
 from src.utils      import *
 from src.logger     import *
@@ -17,32 +19,35 @@ def main():
 
     #
     # 1) Load logger
-    safe_mkdir(logger_path)
-    logger = Logger(logger_path, terminal_mirror=False)
+    do_log = False
+    if do_log:
+        safe_mkdir(logger_path)
+    logger = Logger(logger_path, terminal_mirror=False, do_log=do_log)
 
     #
     # 2) Load VCSWS config
-    if safe_touch(vcsws_config_path):
-        config = logger.run(get_default_config)
-    else:
-        config = configparser.ConfigParser()
-        logger.run(config.read, vcsws_config_path)
-    logger.run(checkpoint_for_config, vcsws_config_path, config)
+    # if safe_touch(vcsws_config_path):
+    #     config = logger.run(get_default_config)
+    # else:
+    #     config = configparser.ConfigParser()
+    #     logger.run(config.read, vcsws_config_path)
+    # logger.run(checkpoint_for_config, vcsws_config_path, config)
 
     #
     # 3) Initialize VCSWS
-    if bool(config.get('cache', 'save_progress')):
-        if pickled_vcsws_path.exists():
-            with open(pickled_vcsws_path, "rb") as f:
-                vcsws = logger.run(pickle.load, f)
-        else:
-            logger.warn("VCSWS pickle file not found")
-            vcsws = logger.run(VCSWS, logger)
-
+    # if bool(config.get('cache', 'save_progress')):
+    #     if pickled_vcsws_path.exists():
+    #         with open(pickled_vcsws_path, "rb") as f:
+    #             vcsws = logger.run(pickle.load, f)
+    #     else:
+    #         logger.warn("VCSWS pickle file not found")
+    #         vcsws = logger.run(VCSWS, logger)
+    vcsws = logger.run(VCSWS, logger)
+    if ".vcsws" in os.listdir(os.curdir):
+        vcsws.init(".")
+        vcsws.initialized = True
     #
     # 4) Run VCSWS CLI
-    vcsws.init('./tests/example')
-    vcsws.initialized = True
     vcsws.run_cli()
 
 

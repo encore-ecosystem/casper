@@ -17,8 +17,6 @@ def safe_touch(path: Path):
 
 
 def get_default_config():
-    num_of_saved_projects = 5
-
     config = configparser.ConfigParser()
     config.add_section('cache')
     config.set('cache', 'save_progress', str(True))
