@@ -18,7 +18,7 @@ def main():
     #
     # 1) Load logger
     safe_mkdir(logger_path)
-    logger = Logger(logger_path)
+    logger = Logger(logger_path, terminal_mirror=False)
 
     #
     # 2) Load VCSWS config
@@ -41,6 +41,8 @@ def main():
 
     #
     # 4) Run VCSWS CLI
+    vcsws.init('./tests/example')
+    vcsws.initialized = True
     vcsws.run_cli()
 
 

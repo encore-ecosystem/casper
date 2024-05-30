@@ -26,14 +26,29 @@ def get_default_config():
     return config
 
 
+def get_default_manifest():
+    return (f'project_name="test"\n'
+            f'authors="test"\n'
+            f'vcsws_version="0.0.1"\n')
+
+
 def checkpoint_for_config(path: Path, config: configparser.ConfigParser):
     with open(path, 'w') as f:
         config.write(f)
+
+
+def initialize_executor(func, initialized: bool = False, *args, **kwargs):
+    if initialized:
+        return func(*args, **kwargs)
+    else:
+        print("Please initialize the project first")
 
 
 __all__ = [
     'safe_mkdir',
     'safe_touch',
     'get_default_config',
+    'get_default_manifest',
     'checkpoint_for_config',
+    'initialize_executor',
 ]
