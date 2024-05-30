@@ -12,6 +12,18 @@ files = [
 ]
 
 [[package]]
+name = "pystun3"
+version = "1.0.0"
+description = "A Python STUN client for getting NAT type and external IP (RFC 3489)"
+optional = false
+python-versions = "*"
+files = [
+    {file = "pystun3-1.0.0-py2-none-any.whl", hash = "sha256:df9c4c4a5b27f520472c6a7547ca24ac39148b0fc5f6f500275161258e250019"},
+    {file = "pystun3-1.0.0-py3-none-any.whl", hash = "sha256:f080e739880cda781fa588a945b4d5bed0858e2ceab40143a08973ec674f9e72"},
+    {file = "pystun3-1.0.0.tar.gz", hash = "sha256:abafa1d957741df4bcc4cd2298a423db5831fec2600a62719210ea115dddc8f9"},
+]
+
+[[package]]
 name = "tqdm"
 version = "4.66.4"
 description = "Fast, Extensible Progress Meter"
@@ -115,4 +127,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "e480366cce63e44f83f7f3da57809116f7fbb7fd7ce2484f09c7e5b25bdcfdb2"
+content-hash = "0c99cb767bd4a3e57ad3037e04d65d23759069ad7575ca551e9e237d6472119c"
