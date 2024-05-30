@@ -1,5 +1,7 @@
 import os
 import re
+
+import stun
 import tqdm
 import json
 import pprint
@@ -27,10 +29,11 @@ class VCSWS:
     # MAGIC
     #
     def __init__(self, logger: Logger, save_progress: bool = False):
-        self.logger = logger
-        self.save = save_progress
-        self.initialized = False
-        self.manifest = {}
+        self.logger                             = logger
+        self.save                               = save_progress
+        self.initialized                        = False
+        self.manifest                           = {}
+        _, self.external_ip, self.external_port = stun.get_ip_info()
 
     def __str__(self) -> str:
         return f'[{self.get_project_name()}]'
@@ -44,10 +47,10 @@ class VCSWS:
             print('[Error] Project path invalid')
             return
 
-        self.project_root = project_root
-        self.vcsws_path = self.project_root / '.vcsws'
+        self.project_root  = project_root
+        self.vcsws_path    = self.project_root / '.vcsws'
         self.manifest_path = self.vcsws_path / 'manifest.toml'
-        self.project_name = self.project_root.name
+        self.project_name  = self.project_root.name
 
         self.load_manifest()
         self.load_ignore()
@@ -164,8 +167,10 @@ class VCSWS:
             else:
                 print('unexpected command', command)
 
-        async with websockets.serve(handler, '127.0.0.1', int(self.prompt("enter port: "))):
+        async with websockets.serve(handler, "0.0.0.0", self.external_port):
+
             print(f"[{datetime.datetime.now()}] Starting server...")
+            print(f"[{datetime.datetime.now()}] Address: ws://{self.external_ip}:{self.external_port}")
             while deploy_is_running:
                 await asyncio.sleep(5)
                 print(f"[server status]: Ok")
