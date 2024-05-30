@@ -29,7 +29,9 @@ def get_default_config():
 def get_default_manifest():
     return (f'project_name="test"\n'
             f'authors="test"\n'
-            f'vcsws_version="0.0.1"\n')
+            f'vcsws_version="0.0.1"\n'
+            f'vcswsignore=".vcswsignore"\n'
+            )
 
 
 def checkpoint_for_config(path: Path, config: configparser.ConfigParser):

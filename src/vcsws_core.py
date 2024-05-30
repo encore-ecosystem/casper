@@ -11,7 +11,7 @@ import websockets
 
 from pathlib import Path
 from src.logger import Logger
-from src.utils import get_default_manifest, initialize_executor, safe_touch
+from src.utils import *
 
 
 class VCSWS:
@@ -19,7 +19,7 @@ class VCSWS:
     vcsws_path    : Path
     manifest_path : Path
     project_name  : str
-    ignore        : list
+    ignore_list   : list
     branch        : str  = 'main'
 
     #
@@ -29,6 +29,7 @@ class VCSWS:
         self.logger      = logger
         self.save        = save_progress
         self.initialized = False
+        self.manifest    = {}
 
     def __str__(self) -> str:
         return f'[{self.get_project_name()}]'
@@ -59,11 +60,9 @@ class VCSWS:
             self.branch = branch_name
 
     def status(self):
-        self.logger(self.load_ignore)
-        hashes = self.logger(self.hash_it, self.vcsws_path.parent)
+        hashes = self.logger(self.hash_it, Path())
         for h in hashes:
-            print(h)
-        print(self.ignore)
+            print(*h, sep='   ')
 
     def commit(self, commit_name: str, commit_description: str):
         if len(commit_name) == 0:
@@ -74,6 +73,24 @@ class VCSWS:
 
                 for hash_, file_path in self.hash_it(self.vcsws_path.parent):
                     commit_file.write(f"{hash_} : {file_path}\n")
+
+    def ignore(self, path: str):
+        vcswsignore_path = (
+            Path(self.vcsws_path / self.manifest.get('vcswsignore'))
+            if 'vcswsignore' in self.manifest
+            else Path(self.vcsws_path / '.vcswsignore')
+        )
+        if not vcswsignore_path.exists():
+            safe_touch(vcswsignore_path)
+
+        if path == '':
+            self.load_ignore()
+        else:
+            abs_path = self.project_root / path
+            if abs_path.exists():
+                with open(vcswsignore_path, "a") as file:
+                    file.write(f"{path}\n")
+        self.load_ignore()
 
     async def push(self, address: str):
         async with websockets.connect(address) as ws:
@@ -125,28 +142,31 @@ class VCSWS:
 
     def load_ignore(self):
         # open ignore file
-        self.ignore = []
+        self.ignore_list = [self.vcsws_path]
         if 'vcswsignore' in self.manifest:
-            topyignore = Path(os.path.join(self.vcsws_path, self.manifest['vcswsignore']))
-            if topyignore.exists():
-                with open(topyignore, 'r') as file:
+            vcswsignore = Path(os.path.join(self.vcsws_path, self.manifest['vcswsignore']))
+            if vcswsignore.exists():
+                with open(vcswsignore, 'r') as file:
                     for line in file.readlines():
-                        to_ignore = self.project_root / line.strip()
-                        self.ignore += [to_ignore] if to_ignore.exists() else []
+                        line = line.strip()
+                        if len(line) != 0:
+                            to_ignore = self.project_root / line
+                            self.ignore_list += [to_ignore] if to_ignore.exists() else []
 
-    def hash_it(self, path: Path):
-        if path in self.ignore:
+    def hash_it(self, rel_path: Path):
+        path = self.project_root / rel_path
+        if path in self.ignore_list:
             return []
 
         if path.is_file():
             with open(path, 'rb') as file:
                 file_hash = hashlib.sha256(file.read()).hexdigest()
-                return [(file_hash, path)]
+                return [(file_hash, rel_path.as_posix())]
 
         elif path.is_dir():
             res = []
-            for sub_path in path.iterdir():
-                res += self.hash_it(sub_path)
+            for sub_path in os.listdir(path):
+                res += self.hash_it(Path(rel_path) / sub_path)
             return res
 
         else:
@@ -195,7 +215,7 @@ class VCSWS:
                     initialize_executor(
                         self.logger,
                         self.initialized,
-                        self.prompt("Enter commit name: "), self.prompt("Enter commit description: ")
+                        self.commit,  self.prompt("Enter commit name: "), self.prompt("Enter commit description: ")
                     )
 
                 case 'pull':
