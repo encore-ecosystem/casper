@@ -1,4 +1,4 @@
-from src.topy_core import Topy
+from src.vcsws_core import VCSWS
 import asyncio
 import pickle
 import os
@@ -11,47 +11,47 @@ def main():
     # Load last settings
     if os.path.exists("./vcsws.pickle") and SAVE_PROGRESS:
         with open("./vcsws.pickle", "rb") as f:
-            topy = pickle.load(f)
+            vcsws = pickle.load(f)
     else:
-        topy = Topy()
+        vcsws = VCSWS()
 
     while True:
-        req = topy.prompt()
+        req = vcsws.prompt()
         match req:
             case 'init':
-                topy.init(topy.prompt("Enter project path: "))
+                vcsws.init(vcsws.prompt("Enter project path: "))
 
             case 'make_new_branch':
-                topy.make_new_branch(topy.prompt("Enter branch name: "))
+                vcsws.make_new_branch(vcsws.prompt("Enter branch name: "))
 
             case 'status':
-                topy.status()
+                vcsws.status()
 
             case 'commit':
-                topy.commit(
-                    commit_name = topy.prompt("Enter commit name: "),
-                    commit_description = topy.prompt("Enter commit description: "),
+                vcsws.commit(
+                    commit_name = vcsws.prompt("Enter commit name: "),
+                    commit_description = vcsws.prompt("Enter commit description: "),
                 )
 
             case 'pull':
                 asyncio.run(
-                    topy.pull(topy.prompt("Enter address: "))
+                    vcsws.pull(vcsws.prompt("Enter address: "))
                 )
 
             case 'push':
                 asyncio.run(
-                    topy.push(topy.prompt("Enter address: "))
+                    vcsws.push(vcsws.prompt("Enter address: "))
                 )
 
             case 'branches':
-                for branch in topy.get_branches():
+                for branch in vcsws.get_branches():
                     print(f" - {branch}")
 
             case 'relocate':
-                topy.relocate(topy.prompt("Enter target branch name:"))
+                vcsws.relocate(vcsws.prompt("Enter target branch name:"))
 
             case 'deploy':
-                asyncio.run(topy.deploy())
+                asyncio.run(vcsws.deploy())
 
             case 'exit':
                 break
@@ -59,8 +59,7 @@ def main():
         # checkpoint
         if SAVE_PROGRESS:
             with open("./vcsws.pickle",  "wb") as f:
-                pickle.dump(topy, f)
-
+                pickle.dump(vcsws, f)
 
 
 if __name__ == '__main__':

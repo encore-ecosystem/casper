@@ -9,7 +9,7 @@ import websockets
 from pathlib import Path
 
 
-class Topy:
+class VCSWS:
     project_root  : Path
     topy_path     : Path
     manifest_path : Path
