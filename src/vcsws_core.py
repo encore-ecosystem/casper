@@ -1,5 +1,6 @@
 import os
 import re
+import pickle
 import tomllib
 import hashlib
 import asyncio
@@ -7,6 +8,7 @@ import datetime
 import websockets
 
 from pathlib import Path
+from src.logger import Logger
 
 
 class VCSWS:
@@ -16,6 +18,10 @@ class VCSWS:
     project_name  : str
     ignore        : list
     branch        : str  = 'main'
+    SAVE_PROGRESS : bool = False
+
+    def __init__(self, logger: Logger):
+        self.logger = logger
 
     def init(self, project_path):
         project_root = Path(project_path).absolute()
@@ -30,6 +36,10 @@ class VCSWS:
         self.manifest_path = self.topy_path / 'manifest.toml'
         self.project_name  = self.project_root.name
 
+        self.load_manifest()
+        self.load_ignore()
+
+    def load_manifest(self):
         # Check existing of the project manifest
         if not self.topy_path.exists():
             self.topy_path.mkdir()
@@ -42,18 +52,18 @@ class VCSWS:
 
         # open manifest
         with open(self.manifest_path, 'rb') as file:
-            manifest = tomllib.load(file)
+            self.manifest = tomllib.load(file)
 
-        # open topyignore
+    def load_ignore(self):
+        # open ignore file
         self.ignore = [Path(self.topy_path)]
-        if 'topyignore' in manifest:
-            topyignore = Path(os.path.join(self.topy_path, manifest['topyignore']))
+        if 'topyignore' in self.manifest:
+            topyignore = Path(os.path.join(self.topy_path, self.manifest['topyignore']))
             if topyignore.exists():
                 with open(topyignore, 'r') as file:
                     for line in file.readlines():
                         to_ignore = self.project_root / line.strip()
                         self.ignore += [to_ignore] if to_ignore.exists() else []
-        print(self.ignore)
 
     def make_new_branch(self, branch_name: str):
         if not (self.topy_path / 'branches' /  branch_name).exists():
@@ -156,3 +166,59 @@ class VCSWS:
     #
     def __str__(self) -> str:
         return f'[{self.get_project_name()}]'
+
+    #
+    # CLI
+    #
+    def run_cli(self):
+        while True:
+            req = self.prompt()
+            match req:
+                case 'init':
+                    self.logger(self.init, self.prompt("Enter project path: "))
+
+                case 'make_new_branch':
+                    self.logger(self.make_new_branch, self.prompt("Enter branch name: "))
+
+                case 'status':
+                    self.logger(self.status)
+
+                case 'commit':
+                    self.logger(
+                        self.commit,
+                        self.prompt("Enter commit name: "), self.prompt("Enter commit description: ")
+                    )
+
+                case 'pull':
+                    asyncio.run(
+                        self.pull(self.prompt("Enter address: "))
+                    )
+
+                case 'push':
+                    asyncio.run(
+                        self.push(self.prompt("Enter address: "))
+                    )
+
+                case 'branches':
+                    branches = self.logger(self.get_branches)
+                    for branch in branches:
+                        print(f" - {branch}")
+
+                case 'relocate':
+                    self.logger(self.relocate, self.prompt("Enter target branch name:"))
+
+                case 'deploy':
+                    asyncio.run(self.deploy())
+
+                case 'exit':
+                    break
+
+            # checkpoint
+            if self.SAVE_PROGRESS:
+                with open("./vcsws.pickle", "wb") as f:
+                    pickle.dump(self, f)
+
+
+__all__ = [
+    'VCSWS'
+]

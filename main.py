@@ -1,65 +1,47 @@
-from src.vcsws_core import VCSWS
-import asyncio
+from src.vcsws_core import *
+from src.utils      import *
+from src.logger     import *
+from pathlib        import Path
+
+import configparser
 import pickle
-import os
-
-
-SAVE_PROGRESS = False
 
 
 def main():
-    # Load last settings
-    if os.path.exists("./vcsws.pickle") and SAVE_PROGRESS:
-        with open("./vcsws.pickle", "rb") as f:
-            vcsws = pickle.load(f)
+    #
+    # 0) Initialize paths
+    vcsws_root_path    = Path().absolute()
+    vcsws_config_path  = vcsws_root_path / 'vcsws.config'
+    pickled_vcsws_path = vcsws_root_path / 'vcsws'
+    logger_path        = vcsws_root_path / 'logs'
+
+    #
+    # 1) Load logger
+    safe_mkdir(logger_path)
+    logger = Logger(logger_path)
+
+    #
+    # 2) Load VCSWS config
+    if safe_touch(vcsws_config_path):
+        config = logger.run(get_default_config)
     else:
-        vcsws = VCSWS()
+        config = configparser.ConfigParser()
+        logger.run(config.read, vcsws_config_path)
+    logger.run(checkpoint_for_config, vcsws_config_path, config)
 
-    while True:
-        req = vcsws.prompt()
-        match req:
-            case 'init':
-                vcsws.init(vcsws.prompt("Enter project path: "))
+    #
+    # 3) Initialize VCSWS
+    if bool(config.get('cache', 'save_progress')):
+        if pickled_vcsws_path.exists():
+            with open(pickled_vcsws_path, "rb") as f:
+                vcsws = logger.run(pickle.load, f)
+        else:
+            logger.warn("VCSWS pickle file not found")
+            vcsws = logger.run(VCSWS, logger)
 
-            case 'make_new_branch':
-                vcsws.make_new_branch(vcsws.prompt("Enter branch name: "))
-
-            case 'status':
-                vcsws.status()
-
-            case 'commit':
-                vcsws.commit(
-                    commit_name = vcsws.prompt("Enter commit name: "),
-                    commit_description = vcsws.prompt("Enter commit description: "),
-                )
-
-            case 'pull':
-                asyncio.run(
-                    vcsws.pull(vcsws.prompt("Enter address: "))
-                )
-
-            case 'push':
-                asyncio.run(
-                    vcsws.push(vcsws.prompt("Enter address: "))
-                )
-
-            case 'branches':
-                for branch in vcsws.get_branches():
-                    print(f" - {branch}")
-
-            case 'relocate':
-                vcsws.relocate(vcsws.prompt("Enter target branch name:"))
-
-            case 'deploy':
-                asyncio.run(vcsws.deploy())
-
-            case 'exit':
-                break
-
-        # checkpoint
-        if SAVE_PROGRESS:
-            with open("./vcsws.pickle",  "wb") as f:
-                pickle.dump(vcsws, f)
+    #
+    # 4) Run VCSWS CLI
+    vcsws.run_cli()
 
 
 if __name__ == '__main__':
