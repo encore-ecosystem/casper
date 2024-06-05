@@ -1,0 +1,3 @@
+tqdm~=4.66.4
+websockets~=12.0
+public-ip~=0.12

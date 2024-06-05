@@ -1,5 +1,6 @@
 from pathlib import Path
 import configparser
+import public_ip
 
 
 def safe_mkdir(path: Path):
@@ -44,6 +45,24 @@ def initialize_executor(func, initialized: bool = False, *args, **kwargs):
         print("Please initialize the project first")
 
 
+def get_my_pub_ip():
+    return public_ip.get()
+
+
+def reverse_dict(d: dict) -> dict:
+    res = {}
+    for key in d:
+        res[d[key]] = key
+    return res
+
+
+def pair_tuple_to_dict(t) -> dict:
+    res = {}
+    for (key, val) in t:
+        res[key] = val
+    return res
+
+
 __all__ = [
     'safe_mkdir',
     'safe_touch',
@@ -51,4 +70,7 @@ __all__ = [
     'get_default_manifest',
     'checkpoint_for_config',
     'initialize_executor',
+    'get_my_pub_ip',
+    'reverse_dict',
+    'pair_tuple_to_dict'
 ]
