@@ -1,15 +1,8 @@
 import os
-import re
-
-import stun
 import tqdm
 import json
-import pprint
-import pickle
 import tomllib
 import hashlib
-import asyncio
-import datetime
 import websockets
 
 from pathlib import Path
@@ -33,7 +26,7 @@ class VCSWS:
         self.save                               = save_progress
         self.initialized                        = False
         self.manifest                           = {}
-        _, self.external_ip, self.external_port = stun.get_ip_info()
+        self.vcsws_server                       = '127.0.0.1:6969' # todo remove
 
     def __str__(self) -> str:
         return f'[{self.get_project_name()}]'
@@ -96,9 +89,19 @@ class VCSWS:
                     file.write(f"{path}\n")
         self.load_ignore()
 
-    async def push(self, address: str):
-        async with websockets.connect(address) as ws:
-            await ws.send("push")
+    async def sync(self):
+        # Get address of VCSWS server
+        print("Connecting to vcsws server...")
+        if self.vcsws_server is None:
+            self.vcsws_server = input("Enter address:port of vcsws server: ws://")
+        else:
+            opt = input(f"Is address of VCSWS server right?: {self.vcsws_server} (y=default/n)").strip().lower()
+            if opt not in ('', 'y', 'yes'):
+                self.vcsws_server = input("Enter address:port of vcsws server: ws://")
+
+        # sync
+        async with websockets.connect(f"ws://{self.vcsws_server}") as ws:
+            await ws.send("sync")
             to_send = self.logger(self.hash_it, Path())
             data = {}
             for (hash_, path_) in to_send:
@@ -111,69 +114,69 @@ class VCSWS:
                 with open(self.project_root / data[file_hash], 'rb') as binfile:
                     await ws.send(binfile.read())
 
-            print("Completed")
+    async def sub(self):
+        # Get address of VCSWS server
+        print("Connecting to vcsws server...")
+        if self.vcsws_server is None:
+            self.vcsws_server = input("Enter address:port of vcsws server: ws://")
+        else:
+            opt = input(f"Is address of VCSWS server right?: {self.vcsws_server} (y=default/n)").strip().lower()
+            if opt not in ('', 'y', 'yes'):
+                self.vcsws_server = input("Enter address:port of vcsws server: ws://")
 
-    async def pull(self, address: str):
-        async with websockets.connect(address) as ws:
-            await ws.send("pull main")
+        # Try to connect
+        server_ws = await websockets.connect(f"ws://{self.vcsws_server}")
 
-    async def deploy(self):
-        deploy_is_running = True
+        # Send subscribe msg
+        await server_ws.send("subscribe")
 
-        async def handler(websocket: websockets.WebSocketServerProtocol, path):
-            print(f"[{datetime.datetime.now()}] New connection from {websocket.remote_address}")
-            command = await websocket.recv()
-            nonlocal deploy_is_running
-            if re.fullmatch(r"pull", command):
-                print('pulling', command)
+        # Wait to receive data
+        print("Waiting sync operator...")
+        server_hash_to_path = json.loads(await server_ws.recv())
+        server_path_to_hash = reverse_dict(server_hash_to_path)
 
-                #
-                deploy_is_running = False
+        client_hash_to_path = {}
+        client_path_to_hash = {}
+        for (hash_, file_path) in self.hash_it(Path()):
+            client_hash_to_path[hash_] = file_path
+            client_path_to_hash[file_path] = hash_
 
-            elif re.fullmatch(r"push", command):
-                # get datas
-                server_data = {hash_: path_  for hash_, path_ in self.logger(self.hash_it, Path())}
-                client_data = json.loads(await websocket.recv())
-                files_to_pull = {}
-
-                # compare hashes
-                for hash_ in client_data:
-                    if hash_ not in server_data:
-                        if client_data[hash_] in server_data.values():
-                            print(f'[U] Updated file in {client_data[hash_]}')
-
-                            files_to_pull[hash_] = 'update'
-                        else:
-                            print(f'[+] New file in {client_data[hash_]}')
-                            files_to_pull[hash_] = 'download'
-
-                    else:
-                        del server_data[hash_]
-
-                for hash_ in server_data:
-                    print(f'[D] Deleted file in {server_data[hash_]}')
-
-                # download new files
-                await websocket.send(json.dumps(files_to_pull))
-
-                for hash_ in tqdm.tqdm(files_to_pull):
-                    binfile = await websocket.recv()
-                    safe_mkdir((self.project_root / client_data[hash_]).parent)
-                    with open(self.project_root / client_data[hash_], 'wb') as f:
-                        f.write(binfile)
-
-                #
-                deploy_is_running = False
+        to_download = {}
+        # compare hashes
+        while len(server_hash_to_path) > 0:
+            server_hash, server_path = server_hash_to_path.popitem()
+            if server_hash in client_hash_to_path:
+                # case 1: file has the different path
+                if client_hash_to_path[server_hash] != server_path:
+                    print(f"[M] File moved to new destination ![NOT IMPLEMENTED]")
+                    print(f"\tFROM: {client_hash_to_path[server_hash]} TO: {server_path}")
+                    # todo implement handler
+                del client_hash_to_path[server_hash]
             else:
-                print('unexpected command', command)
+                # case 2: file updated
+                if server_path in client_path_to_hash:
+                    client_path = client_path_to_hash[server_path]
+                    print(f"[U] File updated: {client_path}")
+                    to_download[server_hash] = server_path
+                # case 3: new file
+                else:
+                    print(f"[N] New file: {server_path}")
+                    to_download[server_hash] = server_path
+        for hash_ in client_hash_to_path:
+            print(f"[D] File deleted: {client_hash_to_path[hash_]}")
 
-        async with websockets.serve(handler, "0.0.0.0", self.external_port):
+        # push request
+        await server_ws.send(json.dumps(to_download))
 
-            print(f"[{datetime.datetime.now()}] Starting server...")
-            print(f"[{datetime.datetime.now()}] Address: ws://{self.external_ip}:{self.external_port}")
-            while deploy_is_running:
-                await asyncio.sleep(5)
-                print(f"[server status]: Ok")
+        # download new files
+        server_hash_to_path = reverse_dict(server_path_to_hash)
+        for hash_ in tqdm.tqdm(to_download):
+            binfile = await server_ws.recv()
+            safe_mkdir((self.project_root / server_hash_to_path[hash_]).parent)
+            with open(self.project_root / server_hash_to_path[hash_], 'wb') as f:
+                f.write(binfile)
+
+        await server_ws.close()
 
     #
     # SUPPORT
@@ -241,62 +244,7 @@ class VCSWS:
     def get_branches(self):
         return os.listdir(self.vcsws_path / 'branches')
 
-    #
-    # CLI
-    #
-    def run_cli(self):
-        while True:
-            match self.prompt():
-                case 'init':
-                    self.logger(self.init, self.prompt("Enter project path: "))
-                    self.initialized = True
 
-                case 'status':
-                    initialize_executor(
-                        self.logger,
-                        self.initialized,
-                        self.status,
-                    )
-
-                case 'pull':
-                    initialize_executor(
-                        asyncio.run,
-                        self.initialized,
-                        self.pull(self.prompt("Enter address: "))
-                    )
-
-                case 'push':
-                    initialize_executor(
-                        asyncio.run,
-                        self.initialized,
-                        self.push(self.prompt("Enter address: "))
-                    )
-
-                case 'deploy':
-                    initialize_executor(
-                        asyncio.run,
-                        self.initialized,
-                        self.deploy()
-                    )
-                case 'ignore':
-                    initialize_executor(
-                        self.logger,
-                        self.initialized,
-                        self.ignore, self.prompt("Enter ignore object: ")
-                    )
-                case 'profile':
-                    initialize_executor(
-                        self.logger,
-                        self.initialized,
-                        lambda: pprint.pprint(self.logger.get_profiler())
-                    )
-                case 'exit':
-                    break
-
-            # checkpoint
-            if self.save:
-                with open("./vcsws.pickle", "wb") as f:
-                    pickle.dump(self, f)
 
 
 __all__ = [
