@@ -1,8 +1,9 @@
 from core import *
 from core.logging import *
+import asyncio
 
 
-def main(*args):
+async def main(*args):
     args = args[0]
     argc = len(args)
 
@@ -18,8 +19,7 @@ def main(*args):
                 exit(1)
             s_port = args[2]
             server = Server(s_port)
-            info(f"Server started on {s_port}")
-            run_server(ping_interval=10.0)
+            await server.deploy()
 
         elif mode == '-c':
             # run as client
@@ -30,8 +30,7 @@ def main(*args):
 
             ts_ip, ts_port = args[2:]
             client = Client(ts_ip, ts_port)
-            info(f"Client started on {ts_ip}:{ts_port}")
-            run_client(ts_ip)
+            await client.connect()
 
         else:
             print(f'Unexpected mode {mode}')
@@ -40,4 +39,4 @@ def main(*args):
 
 if __name__ == '__main__':
     import sys
-    main(sys.argv)
+    asyncio.run(main(sys.argv))
